@@ -29,9 +29,9 @@ class WhatsAppRecipientList(Document):
 			fields.append(name_field)
 		if data_fields:
 			meta = frappe.get_meta(doctype)
-			# print(meta.fields)
+			field_list = list(data_fields.values()) if isinstance(data_fields, dict) else data_fields
 			for field in meta.fields:
-				if field.fieldname not in fields and field.fieldname in data_fields:
+				if field.fieldname not in fields and field.fieldname in field_list:
 					fields.append(field.fieldname)
 		# Get records from the doctype
 		records = frappe.get_all(
@@ -59,11 +59,15 @@ class WhatsAppRecipientList(Document):
 
 			recipient_data = {}
 			if data_fields:
-				for field in data_fields:
-					if record.get(field):
-						# Use field name as the variable name in recipient data
-						variable_name = field.lower().replace(" ", "_")
-						recipient_data[variable_name] = record.get(field)
+				if isinstance(data_fields, dict):
+					for var_key, source_field in data_fields.items():
+						if record.get(source_field):
+							recipient_data[var_key] = record.get(source_field)
+				else:
+					for field in data_fields:
+						if record.get(field):
+							variable_name = field.lower().replace(" ", "_")
+							recipient_data[variable_name] = record.get(field)
 
 				
 			recipient = {
