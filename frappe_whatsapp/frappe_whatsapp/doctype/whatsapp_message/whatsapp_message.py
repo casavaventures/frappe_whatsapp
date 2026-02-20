@@ -257,7 +257,21 @@ class WhatsAppMessage(Document):
                             }
                         }]
                     })
+                elif template.header_type == 'TEXT' and self.template_header_parameters:
+                    header_params = []
+                    try:
+                        # template_header_parameters should be a JSON list of values
+                        h_params = json.loads(self.template_header_parameters)
+                        for param in h_params:
+                            header_params.append({"type": "text", "text": str(param)})
+                    except (ValueError, TypeError):
+                        pass
 
+                    if header_params:
+                        data['template']['components'].append({
+                            "type": "header",
+                            "parameters": header_params
+                        })
         if template.buttons:
             button_parameters = []
             for idx, btn in enumerate(template.buttons):
