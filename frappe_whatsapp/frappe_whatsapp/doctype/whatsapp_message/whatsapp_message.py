@@ -279,8 +279,16 @@ class WhatsAppMessage(Document):
                 elif btn.button_type == "Visit Website":
                     url = btn.website_url
                     if btn.url_type == "Dynamic":
-                        ref_doc = frappe.get_doc(self.reference_doctype, self.reference_name)
-                        url = ref_doc.get_formatted(btn.website_url)
+                        # Support chatbot injected button params
+                        if hasattr(self, "_button_params") and self._button_params and str(idx) in self._button_params:
+                            url = self._button_params[str(idx)]
+                        # Fallback to standard reference document formatting
+                        elif self.reference_doctype and self.reference_name:
+                            ref_doc = frappe.get_doc(self.reference_doctype, self.reference_name)
+                            url = ref_doc.get_formatted(btn.website_url)
+                        else:
+                            # Ensure we don't crash if it is orphaned and has no _button_params
+                            url = btn.website_url
                     button_parameters.append({
                         "type": "button",
                         "sub_type": "url",
