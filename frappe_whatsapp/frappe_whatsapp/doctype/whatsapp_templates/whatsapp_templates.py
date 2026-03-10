@@ -253,11 +253,18 @@ class WhatsAppTemplates(Document):
 def fetch():
     """Fetch templates from meta."""
     """Later improve this code to pass a whatsapp account remove the js funcation so that it is called from whatsapp account doctype """
-    whatsapp_accounts = frappe.get_all('WhatsApp Account', filters={'status': 'Active'}, fields=['name', 'token', 'url', 'version', 'business_id'])
+    account = get_whatsapp_account(account_type='outgoing')
+    if not account:
+        frappe.throw("Please configure a default outgoing WhatsApp Account first.")
+        
+    if account.status != 'Active':
+        frappe.throw(f"Default outgoing WhatsApp Account {account.name} is not Active.")
+
+    whatsapp_accounts = [account]
 
     for account in whatsapp_accounts:
         # get credentials
-        token = frappe.get_doc("WhatsApp Account", account.name).get_password("token")
+        token = account.get_password("token")
         url = account.url
         version = account.version
         business_id = account.business_id
@@ -265,6 +272,14 @@ def fetch():
         headers = {"authorization": f"Bearer {token}", "content-type": "application/json"}
 
         try:
+            # Delete old templates that don't belong to the active default outgoing account
+            frappe.db.sql(
+                "DELETE FROM `tabWhatsApp Button` WHERE parent IN "
+                "(SELECT name FROM `tabWhatsApp Templates` WHERE whatsapp_account != %s)",
+                (account.name,)
+            )
+            frappe.db.sql("DELETE FROM `tabWhatsApp Templates` WHERE whatsapp_account != %s", (account.name,))
+
             response = make_request(
                 "GET",
                 f"{url}/{version}/{business_id}/message_templates",
