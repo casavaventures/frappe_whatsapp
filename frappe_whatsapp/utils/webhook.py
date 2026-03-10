@@ -70,11 +70,13 @@ def post():
 			is_reply = True if message.get('context') and 'forwarded' not in message.get('context') else False
 			reply_to_message_id = message['context']['id'] if is_reply else None
 			if message_type == 'text':
+				# Safely extract message body to avoid KeyError
+				message_body = message.get('text', {}).get('body', '') if 'text' in message else ''
 				frappe.get_doc({
 					"doctype": "WhatsApp Message",
 					"type": "Incoming",
 					"from": message['from'],
-					"message": message['text']['body'],
+					"message": message_body,
 					"message_id": message['id'],
 					"reply_to_message_id": reply_to_message_id,
 					"is_reply": is_reply,
