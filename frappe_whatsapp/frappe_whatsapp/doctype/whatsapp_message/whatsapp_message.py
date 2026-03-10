@@ -277,7 +277,8 @@ class WhatsAppMessage(Document):
                         "parameters": [{"type": "text", "text": btn.phone_number}]
                     })
                 elif btn.button_type == "Visit Website":
-                    url = btn.website_url
+                    # Only send parameters for dynamic URL buttons
+                    # Static URL buttons must NOT have parameters (WhatsApp API error #132018)
                     if btn.url_type == "Dynamic":
                         # Support chatbot injected button params
                         if hasattr(self, "_button_params") and self._button_params and str(idx) in self._button_params:
