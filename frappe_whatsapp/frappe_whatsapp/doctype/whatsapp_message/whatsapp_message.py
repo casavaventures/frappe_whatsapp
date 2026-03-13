@@ -210,11 +210,12 @@ class WhatsAppMessage(Document):
                     template_parameters.append(value)                    
 
             else:
-                ref_doc = frappe.get_doc(self.reference_doctype, self.reference_name)
-                for field_name in field_names:
-                    value = ref_doc.get_formatted(field_name.strip())
-                    parameters.append({"type": "text", "text": value})
-                    template_parameters.append(value)
+                if self.reference_doctype and self.reference_name:
+                    ref_doc = frappe.get_doc(self.reference_doctype, self.reference_name)
+                    for field_name in field_names:
+                        value = ref_doc.get_formatted(field_name.strip())
+                        parameters.append({"type": "text", "text": value})
+                        template_parameters.append(value)
 
             self.template_parameters = json.dumps(template_parameters)
             data["template"]["components"].append(
@@ -279,16 +280,22 @@ class WhatsAppMessage(Document):
                     # Only send parameters for dynamic URL buttons
                     # Static URL buttons must NOT have parameters (WhatsApp API error #132018)
                     if btn.url_type == "Dynamic":
-                        url = btn.website_url
-                        if self.reference_doctype and self.reference_name:
+                        # Support chatbot injected button params
+                        if hasattr(self, "_button_params") and self._button_params and str(idx) in self._button_params:
+                            url = self._button_params[str(idx)]
+                        # Fallback to standard reference document formatting
+                        elif self.reference_doctype and self.reference_name:
                             ref_doc = frappe.get_doc(self.reference_doctype, self.reference_name)
                             url = ref_doc.get_formatted(btn.website_url)
-                        button_parameters.append({
-                            "type": "button",
-                            "sub_type": "url",
-                            "index": str(idx),
-                            "parameters": [{"type": "text", "text": url}]
-                        })
+                        else:
+                            # Ensure we don't crash if it is orphaned and has no _button_params
+                            url = btn.website_url
+                    button_parameters.append({
+                        "type": "button",
+                        "sub_type": "url",
+                        "index": str(idx),
+                        "parameters": [{"type": "text", "text": url}]
+                    })
 
             if button_parameters:
                 data['template']['components'].extend(button_parameters)
