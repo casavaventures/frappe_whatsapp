@@ -131,7 +131,12 @@ def get_whatsapp_account(phone_id=None, account_type='incoming'):
     if phone_id:
         account_name = frappe.db.get_value('WhatsApp Account', {'phone_id': phone_id}, 'name')
         if account_name:
-            return frappe.get_doc("WhatsApp Account", account_name)
+            account = frappe.get_doc("WhatsApp Account", account_name)
+            # For incoming webhooks, only process messages for the default incoming account.
+            # This prevents messages from other numbers in the same Meta App from being processed.
+            if account_type == 'incoming' and not account.is_default_incoming:
+                return None
+            return account
         
         # Avoid processing webhooks for numbers not explicitly added to ERPNext.
         account_field_type = 'is_default_incoming' if account_type =='incoming' else 'is_default_outgoing' 
