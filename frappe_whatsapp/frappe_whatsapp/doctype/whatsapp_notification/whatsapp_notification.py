@@ -92,6 +92,20 @@ class WhatsAppNotification(Document):
         if self.disabled:
             return
 
+        try:
+            self._send_template_message(doc, phone_no, default_template, ignore_condition)
+        except Exception:
+            frappe.log_error(
+                title=f"WhatsApp Notification failed: {self.name}"
+            )
+            frappe.msgprint(
+                _("Failed to send WhatsApp notification. Check Error Log for details."),
+                indicator="orange",
+                alert=True,
+            )
+
+    def _send_template_message(self, doc: Document, phone_no=None, default_template=None, ignore_condition=False):
+        """Internal: build and send template message. May raise on failure."""
         doc_data = doc.as_dict()
         if self.condition and not ignore_condition:
             # check if condition satisfies
@@ -128,7 +142,7 @@ class WhatsAppNotification(Document):
                     if isinstance(doc, Document):
                         # get field with prettier value.
                         value = doc.get_formatted(field.field_name)
-                    else: 
+                    else:
                         value = doc_data[field.field_name]
                         if isinstance(doc_data[field.field_name], (datetime.date, datetime.datetime)):
                             value = str(doc_data[field.field_name])
@@ -226,6 +240,22 @@ class WhatsAppNotification(Document):
                             })
 
 
+            # MPM (Multi-Product Message) template support
+            if self.product_sections:
+                sections = json.loads(self.product_sections)
+                data["template"]["components"].append({
+                    "type": "button",
+                    "sub_type": "mpm",
+                    "index": "0",
+                    "parameters": [{
+                        "type": "action",
+                        "action": {
+                            "thumbnail_product_retailer_id": self.thumbnail_product_retailer_id or "",
+                            "sections": sections,
+                        }
+                    }]
+                })
+
             self.notify(data, doc_data, template_account=template.whatsapp_account)
 
     def notify(self, data, doc_data=None, template_account=None):
@@ -237,7 +267,15 @@ class WhatsAppNotification(Document):
             whatsapp_account = get_whatsapp_account(account_type='outgoing')
 
         if not whatsapp_account:
-            frappe.throw(_("Please set a default outgoing WhatsApp Account"))
+            frappe.log_error(
+                title="WhatsApp Notification: No outgoing account configured"
+            )
+            frappe.msgprint(
+                _("Please set a default outgoing WhatsApp Account"),
+                indicator="orange",
+                alert=True,
+            )
+            return
 
         token = whatsapp_account.get_password("token")
 
@@ -245,8 +283,9 @@ class WhatsAppNotification(Document):
             "authorization": f"Bearer {token}",
             "content-type": "application/json"
         }
+        success = False
+        error_message = None
         try:
-            success = False
             response = make_post_request(
                 f"{whatsapp_account.url}/{whatsapp_account.version}/{whatsapp_account.phone_id}/messages",
                 headers=headers, data=json.dumps(data)
@@ -300,9 +339,9 @@ class WhatsAppNotification(Document):
         except Exception as e:
             error_message = str(e)
             if frappe.flags.integration_request:
-                response = frappe.flags.integration_request.json().get('error', {})
-                if response:
-                    error_message = response.get('Error', response.get("message"))
+                resp_error = frappe.flags.integration_request.json().get('error', {})
+                if resp_error:
+                    error_message = resp_error.get('Error', resp_error.get("message"))
 
             frappe.msgprint(
                 f"Failed to trigger whatsapp message: {error_message}",
@@ -310,15 +349,18 @@ class WhatsAppNotification(Document):
                 alert=True
             )
         finally:
-            if not success:
-                meta = {"error": error_message}
-            else:
-                meta = frappe.flags.integration_request.json()
-            frappe.get_doc({
-                "doctype": "WhatsApp Notification Log",
-                "template": self.template,
-                "meta_data": meta
-            }).insert(ignore_permissions=True)
+            try:
+                if not success:
+                    log_meta = {"error": error_message or "Unknown error"}
+                else:
+                    log_meta = frappe.flags.integration_request.json() if frappe.flags.integration_request else {}
+                frappe.get_doc({
+                    "doctype": "WhatsApp Notification Log",
+                    "template": self.template,
+                    "meta_data": log_meta
+                }).insert(ignore_permissions=True)
+            except Exception:
+                frappe.log_error(title="WhatsApp Notification Log creation failed")
 
 
     def on_trash(self):
