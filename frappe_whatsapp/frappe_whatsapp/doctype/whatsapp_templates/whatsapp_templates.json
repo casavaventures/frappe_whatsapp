@@ -103,10 +103,10 @@
    "fieldname": "header_type",
    "fieldtype": "Select",
    "label": "Header Type",
-   "options": "\nTEXT\nDOCUMENT\nIMAGE"
+   "options": "\nTEXT\nDOCUMENT\nIMAGE\nVIDEO"
   },
   {
-   "depends_on": "eval:doc.header_type",
+   "depends_on": "eval:['IMAGE','DOCUMENT','VIDEO'].includes(doc.header_type)",
    "fieldname": "sample",
    "fieldtype": "Attach",
    "label": "Sample"

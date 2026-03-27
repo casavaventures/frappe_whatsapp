@@ -19,8 +19,34 @@ class BulkWhatsAppMessage(Document):
         self.name = make_autoname("BULK-WA-.YYYY.-.#####")
     
     def validate(self):
-        # self.validate_message()
+        self.sync_use_template()
+        self.build_product_sections_json()
         self.validate_recipients()
+
+    def sync_use_template(self):
+        """Keep use_template in sync with message_mode for backwards compatibility."""
+        if self.message_mode in ("Template", "Catalog Template"):
+            self.use_template = 1
+        elif self.message_mode:
+            self.use_template = 0
+
+    def build_product_sections_json(self):
+        """Convert selected_products child table to product_sections JSON."""
+        if not self.selected_products:
+            return
+
+        sections_map = {}
+        for row in self.selected_products:
+            title = row.section_title or "Products"
+            if title not in sections_map:
+                sections_map[title] = []
+            sections_map[title].append({"product_retailer_id": row.retailer_id})
+
+        sections = [
+            {"title": title, "product_items": items}
+            for title, items in sections_map.items()
+        ]
+        self.product_sections = json.dumps(sections)
     
     def validate_message(self):
         if not self.message_content:
@@ -72,51 +98,77 @@ class BulkWhatsAppMessage(Document):
                 )
     
     def create_single_message(self, recipient):
-        """Create a single message in the queue"""
-        # message_content = self.message_content
-        
-        # Replace variables in the message if any
-        self.status == "In Progress"
-        if recipient.get("recipient_data"):
-            try:
-                variables = json.loads(recipient.get("recipient_data", "{}"))
-                # for var_name, var_value in variables.items():
-                #     message_content = message_content.replace(f"{{{{{var_name}}}}}", str(var_value))
-            except Exception as e:
-                frappe.log_error(f"Error parsing recipient data: {str(e)}", "WhatsApp Bulk Messaging")
-        
-        # Create WhatsApp message
+        """Create a single WhatsApp Message for one recipient."""
         wa_message = frappe.new_doc("WhatsApp Message")
-        # wa_message.from_number = self.from_number
         wa_message.to = recipient.get("mobile_number")
-        wa_message.message_type = "Text"
-        # wa_message.message = message_content
-        wa_message.flags.custom_ref_doc = json.loads(recipient.get("recipient_data", "{}"))
+        wa_message.type = "Outgoing"
         wa_message.bulk_message_reference = self.name
         if self.whatsapp_account:
             wa_message.whatsapp_account = self.whatsapp_account
-        
-        # If template is being used
-        if self.use_template:
-            wa_message.template = self.template
-            wa_message.message_type = 'Template'
-            wa_message.use_template = self.use_template
-            # Handle template variables if needed
 
-            if recipient.get("recipient_data") and self.variable_type=='Unique':
+        if recipient.get("recipient_data"):
+            try:
+                wa_message.flags.custom_ref_doc = json.loads(recipient.get("recipient_data", "{}"))
+            except Exception as e:
+                frappe.log_error(f"Error parsing recipient data: {str(e)}", "WhatsApp Bulk Messaging")
+
+        mode = self.message_mode or ("Template" if self.use_template else "Template")
+
+        if mode == "Template":
+            wa_message.message_type = "Template"
+            wa_message.use_template = 1
+            wa_message.template = self.template
+            wa_message.content_type = "text"
+            if recipient.get("recipient_data") and self.variable_type == "Unique":
                 wa_message.body_param = recipient.get("recipient_data")
-            elif self.template_variables and self.variable_type=='Common':
+            elif self.template_variables and self.variable_type == "Common":
                 wa_message.body_param = self.template_variables
             if self.attach:
                 wa_message.attach = self.attach
-        
-        # Set status to queued
+
+        elif mode == "Product":
+            wa_message.message_type = "Manual"
+            wa_message.content_type = "product"
+            wa_message.catalog = self.catalog
+            wa_message.product_retailer_id = self.product_retailer_id
+            wa_message.message = self.body_text or ""
+            wa_message.footer = self.footer_text or ""
+
+        elif mode == "Product List":
+            wa_message.message_type = "Manual"
+            wa_message.content_type = "product_list"
+            wa_message.catalog = self.catalog
+            wa_message.product_sections = self.product_sections
+            wa_message.product_header = self.header_text or "Products"
+            wa_message.message = self.body_text or ""
+            wa_message.footer = self.footer_text or ""
+
+        elif mode == "Catalog":
+            wa_message.message_type = "Manual"
+            wa_message.content_type = "catalog_message"
+            wa_message.catalog = self.catalog
+            wa_message.thumbnail_product_retailer_id = self.thumbnail_product_retailer_id or ""
+            wa_message.message = self.body_text or ""
+
+        elif mode == "Catalog Template":
+            wa_message.message_type = "Template"
+            wa_message.use_template = 1
+            wa_message.template = self.template
+            wa_message.content_type = "text"
+            wa_message.product_sections = self.product_sections
+            wa_message.thumbnail_product_retailer_id = self.thumbnail_product_retailer_id or ""
+            if recipient.get("recipient_data") and self.variable_type == "Unique":
+                wa_message.body_param = recipient.get("recipient_data")
+            elif self.template_variables and self.variable_type == "Common":
+                wa_message.body_param = self.template_variables
+            if self.attach:
+                wa_message.attach = self.attach
+
         wa_message.status = "Queued"
         try:
             wa_message.insert(ignore_permissions=True)
         except Exception:
             self.db_set("status", "Partially Failed")
-        # Update message count
         self.db_set("sent_count", cint(self.sent_count) + 1)
         if self.recipient_count == self.sent_count:
             self.db_set("status", "Completed")

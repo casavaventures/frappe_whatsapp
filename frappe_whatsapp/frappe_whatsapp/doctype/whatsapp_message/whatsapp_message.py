@@ -50,9 +50,26 @@ class WhatsAppMessage(Document):
             else:
                 self.whatsapp_account = default_whatsapp_account.name
 
+    def build_product_sections_json(self):
+        """Convert selected_products child table to product_sections JSON."""
+        if not self.selected_products:
+            return
+        sections_map = {}
+        for row in self.selected_products:
+            title = row.section_title or "Products"
+            if title not in sections_map:
+                sections_map[title] = []
+            sections_map[title].append({"product_retailer_id": row.retailer_id})
+        sections = [
+            {"title": title, "product_items": items}
+            for title, items in sections_map.items()
+        ]
+        self.product_sections = json.dumps(sections)
+
     """Send whats app messages."""
     def before_insert(self):
         """Send message."""
+        self.build_product_sections_json()
         self.set_whatsapp_account()
         if self.type == "Outgoing" and self.message_type != "Template":
             if self.attach and not self.attach.startswith("http"):
@@ -119,6 +136,53 @@ class WhatsAppMessage(Document):
                             ]
                         }
                     }
+
+            elif self.content_type == "product":
+                catalog_id = self._get_catalog_id()
+                data["type"] = "interactive"
+                interactive = {
+                    "type": "product",
+                    "body": {"text": self.message or ""},
+                    "action": {
+                        "catalog_id": catalog_id,
+                        "product_retailer_id": self.product_retailer_id,
+                    }
+                }
+                if self.footer:
+                    interactive["footer"] = {"text": self.footer}
+                data["interactive"] = interactive
+
+            elif self.content_type == "product_list":
+                catalog_id = self._get_catalog_id()
+                sections = json.loads(self.product_sections) if isinstance(self.product_sections, str) else self.product_sections
+                data["type"] = "interactive"
+                interactive = {
+                    "type": "product_list",
+                    "header": {"type": "text", "text": self.product_header or "Products"},
+                    "body": {"text": self.message or ""},
+                    "action": {
+                        "catalog_id": catalog_id,
+                        "sections": sections,
+                    }
+                }
+                if self.footer:
+                    interactive["footer"] = {"text": self.footer}
+                data["interactive"] = interactive
+
+            elif self.content_type == "catalog_message":
+                catalog_id = self._get_catalog_id()
+                data["type"] = "interactive"
+                params = {}
+                if self.thumbnail_product_retailer_id:
+                    params["thumbnail_product_retailer_id"] = self.thumbnail_product_retailer_id
+                data["interactive"] = {
+                    "type": "catalog_message",
+                    "body": {"text": self.message or ""},
+                    "action": {
+                        "name": "catalog_message",
+                        "parameters": params,
+                    }
+                }
 
             elif self.content_type == "flow":
                 # WhatsApp Flow message
@@ -198,10 +262,18 @@ class WhatsAppMessage(Document):
             template_parameters = []
 
             if self.body_param is not None:
-                params = list(json.loads(self.body_param).values())
-                for param in params:
-                    parameters.append({"type": "text", "text": param})
-                    template_parameters.append(param)
+                parsed = json.loads(self.body_param)
+                if isinstance(parsed, list):
+                    # Array format: [{"type": "text", "value": "..."}]
+                    for item in parsed:
+                        val = item.get("value", item.get("text", "")) if isinstance(item, dict) else str(item)
+                        parameters.append({"type": "text", "text": val})
+                        template_parameters.append(val)
+                elif isinstance(parsed, dict):
+                    # Dict format: {"field1": "val1", ...}
+                    for param in parsed.values():
+                        parameters.append({"type": "text", "text": param})
+                        template_parameters.append(param)
             elif self.flags.custom_ref_doc:
                 custom_values = self.flags.custom_ref_doc
                 for field_name in field_names:
@@ -225,42 +297,28 @@ class WhatsAppMessage(Document):
                 }
             )
 
-        if template.header_type:
+        if template.header_type and template.header_type in ("IMAGE", "DOCUMENT", "VIDEO"):
+            media_url = None
             if self.attach:
-                if template.header_type == 'IMAGE':
-
-                    if self.attach.startswith("http"):
-                        url = f'{self.attach}'
-                    else:
-                        url = f'{frappe.utils.get_url()}{self.attach}'
-                    data['template']['components'].append({
-                        "type": "header",
-                        "parameters": [{
-                            "type": "image",
-                            "image": {
-                                "link": url
-                            }
-                        }]
-                    })
-
+                media_url = self.attach if self.attach.startswith("http") else f'{frappe.utils.get_url()}{self.attach}'
             elif template.sample:
-                if template.header_type == 'IMAGE':
-                    if template.sample.startswith("http"):
-                        url = f'{template.sample}'
-                    else:
-                        url = f'{frappe.utils.get_url()}{template.sample}'
-                    data['template']['components'].append({
-                        "type": "header",
-                        "parameters": [{
-                            "type": "image",
-                            "image": {
-                                "link": url
-                            }
-                        }]
-                    })
+                media_url = template.sample if template.sample.startswith("http") else f'{frappe.utils.get_url()}{template.sample}'
+
+            if media_url:
+                media_type = template.header_type.lower()
+                data['template']['components'].append({
+                    "type": "header",
+                    "parameters": [{
+                        "type": media_type,
+                        media_type: {
+                            "link": media_url
+                        }
+                    }]
+                })
 
         if template.buttons:
             button_parameters = []
+            mpm_index = None
             for idx, btn in enumerate(template.buttons):
                 if btn.button_type == "Quick Reply":
                     button_parameters.append({
@@ -283,24 +341,70 @@ class WhatsAppMessage(Document):
                         # Support chatbot injected button params
                         if hasattr(self, "_button_params") and self._button_params and str(idx) in self._button_params:
                             url = self._button_params[str(idx)]
-                        # Fallback to standard reference document formatting
                         elif self.reference_doctype and self.reference_name:
                             ref_doc = frappe.get_doc(self.reference_doctype, self.reference_name)
                             url = ref_doc.get_formatted(btn.website_url)
                         else:
-                            # Ensure we don't crash if it is orphaned and has no _button_params
                             url = btn.website_url
+                        button_parameters.append({
+                            "type": "button",
+                            "sub_type": "url",
+                            "index": str(idx),
+                            "parameters": [{"type": "text", "text": url}]
+                        })
+                elif btn.button_type == "Flow":
                     button_parameters.append({
                         "type": "button",
-                        "sub_type": "url",
+                        "sub_type": "flow",
                         "index": str(idx),
-                        "parameters": [{"type": "text", "text": url}]
+                        "parameters": [{"type": "action", "action": {
+                            "flow_token": frappe.generate_hash(length=16)
+                        }}]
                     })
+                elif btn.button_type == "Copy Code":
+                    # Copy Code buttons get the coupon code from body_param or ref doc
+                    code = btn.button_label
+                    if hasattr(self, "_button_params") and self._button_params and str(idx) in self._button_params:
+                        code = self._button_params[str(idx)]
+                    button_parameters.append({
+                        "type": "button",
+                        "sub_type": "copy_code",
+                        "index": str(idx),
+                        "parameters": [{"type": "coupon_code", "coupon_code": code}]
+                    })
+                elif btn.button_type == "MPM":
+                    mpm_index = idx
+                # Catalog buttons need no parameters at send time
 
             if button_parameters:
                 data['template']['components'].extend(button_parameters)
 
+        # MPM (Multi-Product Message) template support
+        if self.product_sections:
+            sections = json.loads(self.product_sections) if isinstance(self.product_sections, str) else self.product_sections
+            data["template"]["components"].append({
+                "type": "button",
+                "sub_type": "mpm",
+                "index": str(mpm_index if mpm_index is not None else 0),
+                "parameters": [{
+                    "type": "action",
+                    "action": {
+                        "thumbnail_product_retailer_id": self.thumbnail_product_retailer_id or "",
+                        "sections": sections,
+                    }
+                }]
+            })
+
         self.notify(data)
+
+    def _get_catalog_id(self):
+        """Get the Meta catalog ID from the linked WhatsApp Catalog."""
+        if not self.catalog:
+            frappe.throw(_("Please select a WhatsApp Catalog"))
+        catalog_id = frappe.db.get_value("WhatsApp Catalog", self.catalog, "catalog_id")
+        if not catalog_id:
+            frappe.throw(_("Selected catalog has no Catalog ID. Please sync the catalog first."))
+        return catalog_id
 
     def notify(self, data):
         """Notify."""

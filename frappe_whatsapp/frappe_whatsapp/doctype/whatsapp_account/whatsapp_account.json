@@ -20,7 +20,9 @@
   "business_id",
   "is_default_incoming",
   "is_default_outgoing",
-  "allow_auto_read_receipt"
+  "allow_auto_read_receipt",
+  "section_break_catalog",
+  "catalog_id"
  ],
  "fields": [
   {
@@ -100,6 +102,17 @@
    "fieldname": "allow_auto_read_receipt",
    "fieldtype": "Check",
    "label": "Allow auto read receipt"
+  },
+  {
+   "fieldname": "section_break_catalog",
+   "fieldtype": "Section Break",
+   "label": "Catalog Settings"
+  },
+  {
+   "description": "Enter your Product Catalog ID from Meta Commerce Manager. Go to Commerce Manager > Your Catalog > Settings to find it.",
+   "fieldname": "catalog_id",
+   "fieldtype": "Data",
+   "label": "Catalog ID"
   }
  ],
  "grid_page_length": 50,

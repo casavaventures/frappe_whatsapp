@@ -1,0 +1,259 @@
+{
+ "actions": [],
+ "creation": "2026-03-17 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "product_id",
+  "retailer_id",
+  "product_name",
+  "brand",
+  "category",
+  "column_break_item1",
+  "availability",
+  "condition",
+  "visibility",
+  "review_status",
+  "section_break_pricing",
+  "price",
+  "currency",
+  "column_break_pricing2",
+  "sale_price",
+  "sale_price_start_date",
+  "sale_price_end_date",
+  "section_break_attrs",
+  "color",
+  "size",
+  "gender",
+  "column_break_attrs2",
+  "material",
+  "pattern",
+  "age_group",
+  "section_break_inventory",
+  "inventory",
+  "gtin",
+  "column_break_inventory2",
+  "product_type",
+  "short_description",
+  "section_break_urls",
+  "url",
+  "image_url",
+  "additional_image_urls",
+  "section_break_desc",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "product_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Product ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "retailer_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Retailer ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "product_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Product Name"
+  },
+  {
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "label": "Brand"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Data",
+   "label": "Category"
+  },
+  {
+   "fieldname": "column_break_item1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "availability",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Availability",
+   "options": "\nin stock\nout of stock\navailable for order\ndiscontinued"
+  },
+  {
+   "fieldname": "condition",
+   "fieldtype": "Select",
+   "label": "Condition",
+   "options": "\nnew\nrefurbished\nused"
+  },
+  {
+   "fieldname": "visibility",
+   "fieldtype": "Data",
+   "label": "Visibility",
+   "read_only": 1
+  },
+  {
+   "fieldname": "review_status",
+   "fieldtype": "Data",
+   "label": "Review Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_pricing",
+   "fieldtype": "Section Break",
+   "label": "Pricing"
+  },
+  {
+   "fieldname": "price",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Price"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Data",
+   "label": "Currency"
+  },
+  {
+   "fieldname": "column_break_pricing2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sale_price",
+   "fieldtype": "Data",
+   "label": "Sale Price"
+  },
+  {
+   "fieldname": "sale_price_start_date",
+   "fieldtype": "Data",
+   "label": "Sale Price Start Date"
+  },
+  {
+   "fieldname": "sale_price_end_date",
+   "fieldtype": "Data",
+   "label": "Sale Price End Date"
+  },
+  {
+   "fieldname": "section_break_attrs",
+   "fieldtype": "Section Break",
+   "collapsible": 1,
+   "label": "Attributes"
+  },
+  {
+   "fieldname": "color",
+   "fieldtype": "Data",
+   "label": "Color"
+  },
+  {
+   "fieldname": "size",
+   "fieldtype": "Data",
+   "label": "Size"
+  },
+  {
+   "fieldname": "gender",
+   "fieldtype": "Select",
+   "label": "Gender",
+   "options": "\nmale\nfemale\nunisex"
+  },
+  {
+   "fieldname": "column_break_attrs2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "material",
+   "fieldtype": "Data",
+   "label": "Material"
+  },
+  {
+   "fieldname": "pattern",
+   "fieldtype": "Data",
+   "label": "Pattern"
+  },
+  {
+   "fieldname": "age_group",
+   "fieldtype": "Select",
+   "label": "Age Group",
+   "options": "\nadult\nall ages\nteen\nkids\ntoddler\ninfant\nnewborn"
+  },
+  {
+   "fieldname": "section_break_inventory",
+   "fieldtype": "Section Break",
+   "collapsible": 1,
+   "label": "Inventory & Classification"
+  },
+  {
+   "fieldname": "inventory",
+   "fieldtype": "Int",
+   "label": "Inventory"
+  },
+  {
+   "fieldname": "gtin",
+   "fieldtype": "Data",
+   "label": "GTIN"
+  },
+  {
+   "fieldname": "column_break_inventory2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "product_type",
+   "fieldtype": "Data",
+   "label": "Product Type"
+  },
+  {
+   "fieldname": "short_description",
+   "fieldtype": "Data",
+   "label": "Short Description"
+  },
+  {
+   "fieldname": "section_break_urls",
+   "fieldtype": "Section Break",
+   "label": "URLs & Images"
+  },
+  {
+   "fieldname": "url",
+   "fieldtype": "Data",
+   "label": "URL",
+   "options": "URL"
+  },
+  {
+   "fieldname": "image_url",
+   "fieldtype": "Data",
+   "label": "Image URL",
+   "options": "URL"
+  },
+  {
+   "description": "Comma-separated list of additional image URLs",
+   "fieldname": "additional_image_urls",
+   "fieldtype": "Small Text",
+   "label": "Additional Image URLs"
+  },
+  {
+   "fieldname": "section_break_desc",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-03-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Frappe Whatsapp",
+ "name": "WhatsApp Catalog Item",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

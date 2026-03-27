@@ -9,11 +9,13 @@
   "button_type",
   "button_label",
   "sequence",
-  "is_active",
   "phone_number",
   "website_url",
+  "url_type",
   "example_url",
-  "url_type"
+  "flow_id",
+  "flow_name",
+  "flow_action"
  ],
  "fields": [
   {
@@ -21,7 +23,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Button Type",
-   "options": "Quick Reply\nCall Phone\nVisit Website\nFlow",
+   "options": "Quick Reply\nCall Phone\nVisit Website\nFlow\nCatalog\nMPM\nCopy Code",
    "reqd": 1
   },
   {
@@ -32,35 +34,60 @@
    "reqd": 1
   },
   {
-   "depends_on": "eval:doc.button_type == \"Call Phone\"",
+   "fieldname": "sequence",
+   "fieldtype": "Int",
+   "label": "Sequence",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.button_type == 'Call Phone'",
    "fieldname": "phone_number",
    "fieldtype": "Data",
    "label": "Phone Number"
   },
   {
-   "depends_on": "eval:doc.button_type == \"Visit Website\"",
+   "depends_on": "eval:doc.button_type == 'Visit Website'",
    "fieldname": "website_url",
    "fieldtype": "Data",
    "label": "Website URL"
   },
   {
-   "depends_on": "eval:doc.button_type == \"Visit Website\"",
+   "depends_on": "eval:doc.button_type == 'Visit Website'",
    "fieldname": "url_type",
    "fieldtype": "Select",
    "label": "URL Type",
    "options": "Static\nDynamic"
   },
   {
-   "depends_on": "eval:doc.button_type == \"Visit Website\"",
+   "depends_on": "eval:doc.button_type == 'Visit Website' && doc.url_type == 'Dynamic'",
    "fieldname": "example_url",
    "fieldtype": "Data",
    "label": "Example URL"
+  },
+  {
+   "depends_on": "eval:doc.button_type == 'Flow'",
+   "fieldname": "flow_id",
+   "fieldtype": "Data",
+   "label": "Flow ID"
+  },
+  {
+   "depends_on": "eval:doc.button_type == 'Flow'",
+   "fieldname": "flow_name",
+   "fieldtype": "Data",
+   "label": "Flow Name"
+  },
+  {
+   "depends_on": "eval:doc.button_type == 'Flow'",
+   "fieldname": "flow_action",
+   "fieldtype": "Select",
+   "label": "Flow Action",
+   "options": "navigate\ndata_exchange"
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-09-09 02:32:30.359644",
+ "modified": "2026-03-18 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Frappe Whatsapp",
  "name": "WhatsApp Button",

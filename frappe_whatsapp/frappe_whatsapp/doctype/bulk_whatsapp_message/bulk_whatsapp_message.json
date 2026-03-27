@@ -15,6 +15,7 @@
   "column_break_xvnh",
   "recipients",
   "section_message",
+  "message_mode",
   "use_template",
   "template",
   "variable_type",
@@ -22,6 +23,17 @@
   "whatsapp_account",
   "column_break_hztf",
   "template_variables",
+  "section_product_settings",
+  "catalog",
+  "product_retailer_id",
+  "thumbnail_product_retailer_id",
+  "column_break_product_bulk",
+  "body_text",
+  "header_text",
+  "footer_text",
+  "product_sections",
+  "section_selected_products",
+  "selected_products",
   "section_status",
   "status",
   "scheduled_time",
@@ -82,13 +94,23 @@
    "label": "Message"
   },
   {
+   "default": "Template",
+   "fieldname": "message_mode",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Message Mode",
+   "options": "Template\nProduct\nProduct List\nCatalog\nCatalog Template",
+   "reqd": 1
+  },
+  {
    "default": "1",
    "fieldname": "use_template",
    "fieldtype": "Check",
+   "hidden": 1,
    "label": "Use Template"
   },
   {
-   "depends_on": "eval:doc.use_template==1",
+   "depends_on": "eval:['Template','Catalog Template'].includes(doc.message_mode)",
    "description": "Make sure that Template variables are same as Recipient data fields",
    "fieldname": "template",
    "fieldtype": "Link",
@@ -96,7 +118,7 @@
    "options": "WhatsApp Templates"
   },
   {
-   "depends_on": "eval:doc.use_template==1",
+   "depends_on": "eval:['Template','Catalog Template'].includes(doc.message_mode)",
    "fieldname": "template_variables",
    "fieldtype": "Code",
    "label": "Template Variables",
@@ -139,14 +161,14 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:doc.use_template==1",
+   "depends_on": "eval:['Template','Catalog Template'].includes(doc.message_mode)",
    "fieldname": "attach",
    "fieldtype": "Attach",
    "label": "Attach"
   },
   {
    "default": "Common",
-   "depends_on": "eval:doc.use_template==1",
+   "depends_on": "eval:['Template','Catalog Template'].includes(doc.message_mode)",
    "fieldname": "variable_type",
    "fieldtype": "Select",
    "label": "Variable Type",
@@ -169,6 +191,79 @@
   {
    "fieldname": "column_break_hwbk",
    "fieldtype": "Column Break"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:['Product','Product List','Catalog','Catalog Template'].includes(doc.message_mode)",
+   "fieldname": "section_product_settings",
+   "fieldtype": "Section Break",
+   "label": "Product Settings"
+  },
+  {
+   "depends_on": "eval:['Product','Product List','Catalog','Catalog Template'].includes(doc.message_mode)",
+   "fieldname": "catalog",
+   "fieldtype": "Link",
+   "label": "Catalog",
+   "options": "WhatsApp Catalog"
+  },
+  {
+   "depends_on": "eval:doc.message_mode=='Product'",
+   "description": "The retailer ID (SKU) of the product to send",
+   "fieldname": "product_retailer_id",
+   "fieldtype": "Autocomplete",
+   "label": "Product Retailer ID"
+  },
+  {
+   "depends_on": "eval:['Catalog','Catalog Template'].includes(doc.message_mode)",
+   "description": "Retailer ID of product to show as thumbnail",
+   "fieldname": "thumbnail_product_retailer_id",
+   "fieldtype": "Autocomplete",
+   "label": "Thumbnail Product Retailer ID"
+  },
+  {
+   "fieldname": "column_break_product_bulk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:['Product','Product List','Catalog'].includes(doc.message_mode)",
+   "description": "Body text for the product message",
+   "fieldname": "body_text",
+   "fieldtype": "Small Text",
+   "label": "Body Text"
+  },
+  {
+   "depends_on": "eval:doc.message_mode=='Product List'",
+   "description": "Header text for the product list",
+   "fieldname": "header_text",
+   "fieldtype": "Data",
+   "label": "Header Text"
+  },
+  {
+   "depends_on": "eval:['Product','Product List'].includes(doc.message_mode)",
+   "fieldname": "footer_text",
+   "fieldtype": "Data",
+   "label": "Footer Text"
+  },
+  {
+   "fieldname": "product_sections",
+   "fieldtype": "Code",
+   "hidden": 1,
+   "label": "Product Sections",
+   "options": "JSON"
+  },
+  {
+   "depends_on": "eval:['Product List','Catalog Template'].includes(doc.message_mode)",
+   "fieldname": "section_selected_products",
+   "fieldtype": "Section Break",
+   "label": "Selected Products"
+  },
+  {
+   "depends_on": "eval:['Product List','Catalog Template'].includes(doc.message_mode)",
+   "description": "Add products and group them by section title. Products with the same section title form one section.",
+   "fieldname": "selected_products",
+   "fieldtype": "Table",
+   "label": "Selected Products",
+   "options": "WhatsApp Message Product"
   }
  ],
  "index_web_pages_for_search": 1,

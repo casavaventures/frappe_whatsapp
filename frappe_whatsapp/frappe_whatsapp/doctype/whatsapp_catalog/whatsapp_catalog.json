@@ -1,0 +1,116 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:{catalog_name}-{whatsapp_account}",
+ "creation": "2026-03-17 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "catalog_name",
+  "catalog_id",
+  "column_break_main",
+  "whatsapp_account",
+  "product_count",
+  "section_break_commerce",
+  "is_catalog_visible",
+  "is_cart_enabled",
+  "section_break_items",
+  "items"
+ ],
+ "fields": [
+  {
+   "fieldname": "catalog_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Catalog Name",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "catalog_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Catalog ID",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "whatsapp_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "WhatsApp Account",
+   "options": "WhatsApp Account",
+   "read_only": 1
+  },
+  {
+   "fieldname": "product_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Product Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_commerce",
+   "fieldtype": "Section Break",
+   "label": "Commerce Settings"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_catalog_visible",
+   "fieldtype": "Check",
+   "label": "Is Catalog Visible",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_cart_enabled",
+   "fieldtype": "Check",
+   "label": "Is Cart Enabled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_items",
+   "fieldtype": "Section Break",
+   "label": "Products"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "WhatsApp Catalog Item"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-03-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Frappe Whatsapp",
+ "name": "WhatsApp Catalog",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

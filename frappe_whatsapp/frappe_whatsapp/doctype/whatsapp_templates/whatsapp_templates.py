@@ -21,9 +21,15 @@ class WhatsAppTemplates(Document):
             lang_code = frappe.db.get_value("Language", self.language) or "en"
             self.language_code = lang_code.replace("-", "_")
 
-        if self.header_type in ["IMAGE", "DOCUMENT"] and self.sample:
+        if self.header_type in ["IMAGE", "DOCUMENT", "VIDEO"] and self.sample:
             self.get_session_id()
             self.get_media_id()
+
+        # MPM and Catalog buttons require a header
+        if self.buttons:
+            for btn in self.buttons:
+                if btn.button_type in ("MPM", "Catalog") and not self.header_type:
+                    frappe.throw(f"A header is required for templates with a {btn.button_type} button.")
 
         if not self.is_new():
             self.update_template()
@@ -93,44 +99,8 @@ class WhatsAppTemplates(Document):
             "name": self.actual_name,
             "language": self.language_code,
             "category": self.category,
-            "components": [],
+            "components": self._build_components(),
         }
-
-        body = {
-            "type": "BODY",
-            "text": self.template,
-        }
-        if self.sample_values:
-            body.update({"example": {"body_text": [self.sample_values.split(",")]}})
-
-        data["components"].append(body)
-        if self.header_type:
-            data["components"].append(self.get_header())
-
-        # add footer
-        if self.footer:
-            data["components"].append({"type": "FOOTER", "text": self.footer})
-
-        # add buttons
-        if self.buttons:
-            button_block = {"type": "BUTTONS", "buttons": []}
-            for btn in self.buttons:
-                b = {"type": btn.button_type, "text": btn.button_label}
-
-                if btn.button_type == "Visit Website":
-                    b["type"] = "URL"
-                    b["url"] = btn.website_url
-                    if btn.url_type == "Dynamic" and btn.example_url:
-                        b["example"] = btn.example_url.split(",")
-                elif btn.button_type == "Call Phone":
-                    b["type"] = "PHONE_NUMBER"
-                    b["phone_number"] = btn.phone_number
-                elif btn.button_type == "Quick Reply":
-                    b["type"] = "QUICK_REPLY"
-
-                button_block["buttons"].append(b)
-
-            data["components"].append(button_block)
 
         try:
             response = make_post_request(
@@ -152,19 +122,36 @@ class WhatsAppTemplates(Document):
     def update_template(self):
         """Update template to meta."""
         self.get_settings()
-        data = {"components": []}
+        data = {"components": self._build_components()}
 
-        body = {
-            "type": "BODY",
-            "text": self.template,
-        }
+        try:
+            make_post_request(
+                f"{self._url}/{self._version}/{self.id}",
+                headers=self._headers,
+                data=json.dumps(data),
+            )
+        except Exception as e:
+            raise e
+
+    def _build_components(self):
+        """Build template components array for Meta API."""
+        components = []
+
+        # Body
+        body = {"type": "BODY", "text": self.template}
         if self.sample_values:
-            body.update({"example": {"body_text": [self.sample_values.split(",")]}})
-        data["components"].append(body)
+            body["example"] = {"body_text": [self.sample_values.split(",")]}
+        components.append(body)
+
+        # Header
         if self.header_type:
-            data["components"].append(self.get_header())
+            components.append(self.get_header())
+
+        # Footer
         if self.footer:
-            data["components"].append({"type": "FOOTER", "text": self.footer})
+            components.append({"type": "FOOTER", "text": self.footer})
+
+        # Buttons
         if self.buttons:
             button_block = {"type": "BUTTONS", "buttons": []}
             for btn in self.buttons:
@@ -180,25 +167,28 @@ class WhatsAppTemplates(Document):
                     b["phone_number"] = btn.phone_number
                 elif btn.button_type == "Quick Reply":
                     b["type"] = "QUICK_REPLY"
+                elif btn.button_type == "Catalog":
+                    b["type"] = "CATALOG"
+                elif btn.button_type == "MPM":
+                    b["type"] = "MPM"
+                elif btn.button_type == "Copy Code":
+                    b["type"] = "COPY_CODE"
+                    b.pop("text", None)
+                    b["example"] = btn.button_label
+                elif btn.button_type == "Flow":
+                    b["type"] = "FLOW"
+                    if btn.flow_name:
+                        b["flow_name"] = btn.flow_name
+                    if btn.flow_id:
+                        b["flow_id"] = btn.flow_id
+                    if btn.flow_action:
+                        b["flow_action"] = btn.flow_action
 
                 button_block["buttons"].append(b)
 
-            data["components"].append(button_block)
+            components.append(button_block)
 
-        try:
-            # post template to meta for update
-            make_post_request(
-                f"{self._url}/{self._version}/{self.id}",
-                headers=self._headers,
-                data=json.dumps(data),
-            )
-        except Exception as e:
-            raise e
-            # res = frappe.flags.integration_request.json()['error']
-            # frappe.throw(
-            #     msg=res.get('error_user_msg', res.get("message")),
-            #     title=res.get("error_user_title", "Error"),
-            # )
+        return components
 
     def get_settings(self):
         """Get whatsapp settings."""
@@ -233,18 +223,16 @@ class WhatsAppTemplates(Document):
 
     def get_header(self):
         """Get header format."""
-        header = {"type": "header", "format": self.header_type}
+        header = {"type": "HEADER", "format": self.header_type}
         if self.header_type == "TEXT":
             header["text"] = self.header
             if self.sample:
                 samples = self.sample.split(", ")
                 header.update({"example": {"header_text": samples}})
-        else:
-            pdf_link = ''
+        elif self.header_type in ("IMAGE", "DOCUMENT", "VIDEO"):
             if not self.sample:
                 key = frappe.get_doc(self.doctype, self.name).get_document_share_key()
                 link = get_pdf_link(self.doctype, self.name)
-                pdf_link = f"{frappe.utils.get_url()}{link}&key={key}"
             header.update({"example": {"header_handle": [self._media_id]}})
 
         return header
@@ -321,11 +309,11 @@ def fetch():
                     elif component["type"] == "BODY":
                         doc.template = component["text"]
                         if component.get("example"):
-    			            # Check if 'body_text' exists before trying to access it
+                            # Check if 'body_text' exists before trying to access it
                             if component["example"].get("body_text"):
                                 doc.sample_values = ",".join(
-            	                    component["example"]["body_text"][0]
-                    	        )
+                                    component["example"]["body_text"][0]
+                                )
 
                     # Update buttons
                     elif component["type"] == "BUTTONS":
@@ -335,18 +323,21 @@ def fetch():
                             "URL": "Visit Website",
                             "PHONE_NUMBER": "Call Phone",
                             "QUICK_REPLY": "Quick Reply",
-                            "FLOW": "Flow"
+                            "FLOW": "Flow",
+                            "CATALOG": "Catalog",
+                            "MPM": "MPM",
+                            "COPY_CODE": "Copy Code",
                         }
 
                         for i, button in enumerate(component.get("buttons", []), start=1):
                             btn = {}
-                            btn["button_type"] = typeMap[button["type"]]
-                            btn["button_label"] = button.get("text")
+                            btn["button_type"] = typeMap.get(button["type"], button["type"])
+                            btn["button_label"] = button.get("text", "")
                             btn["sequence"] = i
 
                             if button["type"] == "URL":
                                 btn["website_url"] = button.get("url")
-                                if "{{" in btn["website_url"]:
+                                if btn["website_url"] and "{{" in btn["website_url"]:
                                     btn["url_type"] = "Dynamic"
                                 else:
                                     btn["url_type"] = "Static"
@@ -356,7 +347,11 @@ def fetch():
                             elif button["type"] == "PHONE_NUMBER":
                                 btn["phone_number"] = button.get("phone_number")
                             elif button["type"] == "FLOW":
-                                btn["flow"] = button.get("flow")
+                                btn["flow_id"] = button.get("flow_id", "")
+                                btn["flow_name"] = button.get("flow_name", "")
+                                btn["flow_action"] = button.get("flow_action", "")
+                            elif button["type"] == "COPY_CODE":
+                                btn["button_label"] = button.get("example", button.get("text", ""))
 
                             doc.append("buttons", btn)
 

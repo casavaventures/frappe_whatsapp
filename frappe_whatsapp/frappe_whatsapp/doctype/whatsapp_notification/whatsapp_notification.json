@@ -29,6 +29,10 @@
   "column_break_12",
   "fields",
   "button_fields",
+  "section_break_mpm",
+  "product_sections",
+  "column_break_mpm",
+  "thumbnail_product_retailer_id",
   "property_section",
   "set_property_after_alert",
   "property_value",
@@ -215,6 +219,29 @@
    "fieldname": "button_fields",
    "fieldtype": "Data",
    "label": "Button Fields"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_mpm",
+   "fieldtype": "Section Break",
+   "label": "Catalog Product Sections (MPM)"
+  },
+  {
+   "description": "JSON array of sections for Catalog Template (MPM) messages: [{\"title\": \"Section\", \"product_items\": [{\"product_retailer_id\": \"SKU\"}]}]",
+   "fieldname": "product_sections",
+   "fieldtype": "Code",
+   "label": "Product Sections",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "column_break_mpm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Retailer ID of product to show as thumbnail in the MPM message",
+   "fieldname": "thumbnail_product_retailer_id",
+   "fieldtype": "Data",
+   "label": "Thumbnail Product Retailer ID"
   }
  ],
  "index_web_pages_for_search": 1,
