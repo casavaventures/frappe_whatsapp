@@ -44,7 +44,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Field Type",
-   "options": "TextInput\nTextArea\nDatePicker\nRadioButtonsGroup\nCheckboxGroup\nDropdown\nOptIn\nEmbeddedLink\nImage\nTextHeading\nTextSubheading\nTextBody\nTextCaption\nFooter",
+   "options": "TextInput\nTextArea\nDatePicker\nRadioButtonsGroup\nCheckboxGroup\nDropdown\nOptIn\nEmbeddedLink\nImage\nTextHeading\nTextSubheading\nTextBody\nTextCaption\nFooter\nForm\nIf\nSwitch\nNavigationList\nPhotoPicker\nDocumentPicker\nCalendarPicker\nLocationPicker",
    "reqd": 1
   },
   {

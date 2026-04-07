@@ -223,6 +223,16 @@ class WhatsAppMessage(Document):
                     }
                 }
 
+                # Inject dynamic screen data if provided (e.g. address list for selection flows)
+                custom_screen_data = self.get("custom_flow_screen_data")
+                if custom_screen_data:
+                    try:
+                        import json as _json
+                        parsed = _json.loads(custom_screen_data) if isinstance(custom_screen_data, str) else custom_screen_data
+                        data["interactive"]["action"]["parameters"]["flow_action_payload"]["data"] = parsed
+                    except Exception:
+                        pass
+
                 # Add draft mode for testing unpublished flows
                 if flow_mode:
                     data["interactive"]["action"]["parameters"]["mode"] = flow_mode

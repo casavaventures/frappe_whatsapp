@@ -85,10 +85,17 @@ class WhatsAppFlow(Document):
                     "TextHeading", "TextSubheading", "TextBody",
                     "TextCaption", "Image", "EmbeddedLink", "Footer"
                 ]:
-                    accumulated_fields[field.field_name] = {
-                        "type": "string",
-                        "__example__": ""
-                    }
+                    # LocationPicker returns a JSON object; everything else is a string
+                    if field.field_type == "LocationPicker":
+                        accumulated_fields[field.field_name] = {
+                            "type": "object",
+                            "__example__": {}
+                        }
+                    else:
+                        accumulated_fields[field.field_name] = {
+                            "type": "string",
+                            "__example__": ""
+                        }
 
         return screen_data_map
 
@@ -932,7 +939,10 @@ def parse_flow_json_to_screens(flow_doc, flow_json):
         layout = screen_data.get("layout", {})
         children = layout.get("children", [])
 
-        for child in children:
+        # Flatten nested containers (Form, If, etc.) and extract all fields
+        flat_children = _flatten_children(children)
+
+        for child in flat_children:
             field_type = child.get("type")
             if not field_type:
                 continue
@@ -959,3 +969,46 @@ def parse_flow_json_to_screens(flow_doc, flow_json):
                     field_data["options"] = json.dumps(data_source)
 
             flow_doc.append("fields", field_data)
+
+
+# Container types whose children should be extracted
+_CONTAINER_TYPES = {"Form", "If", "Switch", "SingleColumnLayout"}
+
+
+def _flatten_children(children, depth=0):
+    """Recursively flatten container components (Form, If, etc.) into a flat list.
+
+    Container types like 'Form' and 'If' wrap other components as children.
+    This function extracts the actual input/display fields from nested containers.
+
+    Args:
+        children: list of component dicts from flow JSON
+        depth: recursion depth limit (safety)
+
+    Returns:
+        Flat list of non-container component dicts
+    """
+    if depth > 10:
+        return []
+
+    flat = []
+    for child in children:
+        child_type = child.get("type", "")
+
+        if child_type in _CONTAINER_TYPES:
+            # Container: recurse into its children
+            nested = child.get("children", [])
+            if nested:
+                flat.extend(_flatten_children(nested, depth + 1))
+            # For 'If' / 'Switch', also check 'then' and 'else' branches
+            for branch_key in ("then", "else"):
+                branch = child.get(branch_key)
+                if isinstance(branch, list):
+                    flat.extend(_flatten_children(branch, depth + 1))
+                elif isinstance(branch, dict) and branch.get("children"):
+                    flat.extend(_flatten_children(branch["children"], depth + 1))
+        else:
+            # Leaf component — keep it
+            flat.append(child)
+
+    return flat

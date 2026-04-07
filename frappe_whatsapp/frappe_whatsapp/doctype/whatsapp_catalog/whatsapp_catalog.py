@@ -16,6 +16,43 @@ class WhatsAppCatalog(Document):
 
 
 @frappe.whitelist()
+def setup_catalog(catalog_id, catalog_name=None):
+    """
+    Link an existing Meta catalog to the WhatsApp Account, fetch its details,
+    and push all published Frappe products to it.
+
+    catalog_id  — the numeric ID from Meta Commerce Manager
+    catalog_name — optional display name (ignored if catalog already has a name on Meta)
+    """
+    account = get_whatsapp_account(account_type='outgoing')
+    if not account:
+        frappe.throw("Please configure a default outgoing WhatsApp Account first.")
+
+    # Save catalog_id on the WhatsApp Account so fetch() can find it
+    frappe.db.set_value("WhatsApp Account", account.name, "catalog_id", str(catalog_id).strip())
+    frappe.db.commit()
+
+    # Pull catalog metadata and products from Meta into Frappe
+    fetch_result = fetch()
+
+    # Push all published Frappe products to the catalog
+    sync_result = {"synced": 0, "errors": 0, "total": 0}
+    try:
+        from shopbridge.api.v1.whatsapp_shop import bulk_sync_catalog
+        sync_result = bulk_sync_catalog() or sync_result
+    except Exception as e:
+        frappe.log_error("WhatsApp Catalog", f"setup_catalog product sync: {e}")
+
+    return {
+        "catalog_id": catalog_id,
+        "fetch": fetch_result,
+        "synced": sync_result.get("synced", 0),
+        "total": sync_result.get("total", 0),
+        "sync_errors": sync_result.get("errors", 0),
+    }
+
+
+@frappe.whitelist()
 def fetch():
     """Fetch catalogs and their products from Meta."""
     account = get_whatsapp_account(account_type='outgoing')
