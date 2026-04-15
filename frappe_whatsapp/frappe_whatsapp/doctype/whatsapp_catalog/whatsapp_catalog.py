@@ -3,10 +3,9 @@
 # Copyright (c) 2026, Frappe Technologies and contributors
 # For license information, please see license.txt
 
-import json
 import frappe
 from frappe.model.document import Document
-from frappe.integrations.utils import make_request, make_post_request
+from frappe.integrations.utils import make_request
 
 from frappe_whatsapp.utils import get_whatsapp_account
 
@@ -35,20 +34,9 @@ def setup_catalog(catalog_id, catalog_name=None):
     # Pull catalog metadata and products from Meta into Frappe
     fetch_result = fetch()
 
-    # Push all published Frappe products to the catalog
-    sync_result = {"synced": 0, "errors": 0, "total": 0}
-    try:
-        from shopbridge.api.v1.whatsapp_shop import bulk_sync_catalog
-        sync_result = bulk_sync_catalog() or sync_result
-    except Exception as e:
-        frappe.log_error("WhatsApp Catalog", f"setup_catalog product sync: {e}")
-
     return {
         "catalog_id": catalog_id,
         "fetch": fetch_result,
-        "synced": sync_result.get("synced", 0),
-        "total": sync_result.get("total", 0),
-        "sync_errors": sync_result.get("errors", 0),
     }
 
 
@@ -195,144 +183,6 @@ def fetch():
     _cleanup_stale_catalogs(account.name, [catalog_id])
 
     return f"Successfully synced catalog with {len(products)} product(s) from Meta."
-
-
-@frappe.whitelist()
-def push_to_meta(catalog_name):
-    """Push only modified products from Frappe to Meta."""
-    doc = frappe.get_doc("WhatsApp Catalog", catalog_name)
-
-    if not doc.whatsapp_account:
-        frappe.throw("No WhatsApp Account linked to this catalog.")
-
-    account = frappe.get_doc("WhatsApp Account", doc.whatsapp_account)
-    token = account.get_password("token")
-    url = account.url
-    version = account.version
-
-    headers = {
-        "authorization": f"Bearer {token}",
-        "content-type": "application/json",
-    }
-
-    # Editable fields that can be pushed to Meta
-    field_map = {
-        "product_name": "name",
-        "description": "description",
-        "short_description": "short_description",
-        "url": "url",
-        "image_url": "image_url",
-        "brand": "brand",
-        "category": "category",
-        "product_type": "product_type",
-        "condition": "condition",
-        "availability": "availability",
-        "gtin": "gtin",
-        "color": "color",
-        "size": "size",
-        "gender": "gender",
-        "age_group": "age_group",
-        "material": "material",
-        "pattern": "pattern",
-    }
-
-    # Build a map of saved (DB) values by product_id for comparison
-    saved_items = {}
-    for row in frappe.get_all(
-        "WhatsApp Catalog Item",
-        filters={"parent": doc.name, "parenttype": "WhatsApp Catalog"},
-        fields=["name", "product_id", *field_map.keys(),
-                "price", "currency", "sale_price",
-                "sale_price_start_date", "sale_price_end_date",
-                "inventory", "additional_image_urls"],
-    ):
-        saved_items[row.product_id] = row
-
-    updated = 0
-    skipped = 0
-    errors = []
-
-    for item in doc.items:
-        if not item.product_id:
-            continue
-
-        saved = saved_items.get(item.product_id)
-        if not saved:
-            # New item not yet in DB — skip (needs sync first)
-            continue
-
-        # Detect which fields actually changed
-        data = {}
-
-        for frappe_field, meta_field in field_map.items():
-            current = item.get(frappe_field) or ""
-            old = saved.get(frappe_field) or ""
-            if str(current) != str(old):
-                data[meta_field] = current
-
-        # Check price change
-        if str(item.price or "") != str(saved.price or "") or str(item.currency or "") != str(saved.currency or ""):
-            if item.price and item.currency:
-                try:
-                    data["price"] = int(float(item.price) * 100)
-                    data["currency"] = item.currency
-                except (ValueError, TypeError):
-                    pass
-
-        # Check sale price change
-        sale_changed = (
-            str(item.sale_price or "") != str(saved.sale_price or "")
-            or str(item.sale_price_start_date or "") != str(saved.sale_price_start_date or "")
-            or str(item.sale_price_end_date or "") != str(saved.sale_price_end_date or "")
-        )
-        if sale_changed and item.sale_price and item.currency:
-            try:
-                data["sale_price"] = int(float(item.sale_price) * 100)
-                data["sale_price_start_date"] = item.sale_price_start_date or ""
-                data["sale_price_end_date"] = item.sale_price_end_date or ""
-            except (ValueError, TypeError):
-                pass
-
-        # Check inventory change
-        if (item.inventory or 0) != (saved.inventory or 0):
-            data["inventory"] = item.inventory or 0
-
-        # Check additional images change
-        if str(item.additional_image_urls or "") != str(saved.additional_image_urls or ""):
-            if item.additional_image_urls:
-                urls = [u.strip() for u in item.additional_image_urls.split(",") if u.strip()]
-                if urls:
-                    data["additional_image_urls"] = json.dumps(urls)
-
-        if not data:
-            skipped += 1
-            continue
-
-        try:
-            make_post_request(
-                f"{url}/{version}/{item.product_id}",
-                headers=headers,
-                data=json.dumps(data),
-            )
-            updated += 1
-        except Exception as e:
-            error_msg = str(e)
-            if hasattr(frappe.flags, 'integration_request') and hasattr(frappe.flags.integration_request, 'json'):
-                try:
-                    res = frappe.flags.integration_request.json().get("error", {})
-                    error_msg = res.get("error_user_msg", res.get("message", error_msg))
-                except Exception:
-                    pass
-            errors.append(f"{item.product_name or item.product_id}: {error_msg}")
-
-    if updated == 0 and not errors:
-        return "No changes detected. Nothing to push."
-
-    result = f"Successfully updated {updated} product(s) on Meta."
-    if errors:
-        result += f"<br><br><b>Errors ({len(errors)}):</b><br>" + "<br>".join(errors)
-
-    return result
 
 
 def _format_price(price_raw):
