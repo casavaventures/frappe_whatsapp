@@ -9,8 +9,30 @@ import magic
 from frappe.model.document import Document
 from frappe.integrations.utils import make_post_request, make_request
 from frappe.desk.form.utils import get_pdf_link
+from frappe.utils import now_datetime
 
 from frappe_whatsapp.utils import get_whatsapp_account
+
+
+def get_account_credentials(account_name):
+    """Get WhatsApp Account credentials as a dict.
+
+    Shared helper used by both the Document class methods and standalone functions.
+    """
+    settings = frappe.get_doc("WhatsApp Account", account_name)
+    token = settings.get_password("token")
+    return {
+        "token": token,
+        "url": settings.url,
+        "version": settings.version,
+        "business_id": settings.business_id,
+        "app_id": settings.app_id,
+        "headers": {
+            "authorization": f"Bearer {token}",
+            "content-type": "application/json",
+        },
+    }
+
 
 class WhatsAppTemplates(Document):
     """Create whatsapp template."""
@@ -39,7 +61,7 @@ class WhatsAppTemplates(Document):
         if not self.whatsapp_account:
             default_whatsapp_account = get_whatsapp_account()
             if not default_whatsapp_account:
-                throw(_("Please set a default outgoing WhatsApp Account or Select available WhatsApp Account"))
+                frappe.throw(frappe._("Please set a default outgoing WhatsApp Account or Select available WhatsApp Account"))
             else:
                 self.whatsapp_account = default_whatsapp_account.name
 
@@ -83,10 +105,12 @@ class WhatsAppTemplates(Document):
         self._media_id = response['h']
 
     def get_absolute_path(self, file_name):
-        if(file_name.startswith('/files/')):
+        if file_name.startswith('/files/'):
             file_path = f'{frappe.utils.get_bench_path()}/sites/{frappe.utils.get_site_base_path()[2:]}/public{file_name}'
-        if(file_name.startswith('/private/')):
+        elif file_name.startswith('/private/'):
             file_path = f'{frappe.utils.get_bench_path()}/sites/{frappe.utils.get_site_base_path()[2:]}{file_name}'
+        else:
+            frappe.throw(f"Invalid file path: {file_name}. Must start with /files/ or /private/")
         return file_path
 
 
@@ -192,34 +216,20 @@ class WhatsAppTemplates(Document):
 
     def get_settings(self):
         """Get whatsapp settings."""
-        settings = frappe.get_doc("WhatsApp Account", self.whatsapp_account)
-        self._token = settings.get_password("token")
-        self._url = settings.url
-        self._version = settings.version
-        self._business_id = settings.business_id
-        self._app_id = settings.app_id
-
-        self._headers = {
-            "authorization": f"Bearer {self._token}",
-            "content-type": "application/json",
-        }
+        creds = get_account_credentials(self.whatsapp_account)
+        self._token = creds["token"]
+        self._url = creds["url"]
+        self._version = creds["version"]
+        self._business_id = creds["business_id"]
+        self._app_id = creds["app_id"]
+        self._headers = creds["headers"]
 
     def on_trash(self):
-        self.get_settings()
-        url = f"{self._url}/{self._version}/{self._business_id}/message_templates?name={self.actual_name}"
-        try:
-            make_request("DELETE", url, headers=self._headers)
-        except Exception:
-            res = frappe.flags.integration_request.json().get("error", {})
-            if res.get("error_user_title") == "Message Template Not Found":
-                frappe.msgprint(
-                    "Deleted locally", res.get("error_user_title", "Error"), alert=True
-                )
-            else:
-                frappe.throw(
-                    msg=res.get("error_user_msg"),
-                    title=res.get("error_user_title", "Error"),
-                )
+        """Local delete only. Does NOT call Meta API.
+
+        Use delete_from_meta() to explicitly delete from Meta.
+        """
+        pass
 
     def get_header(self):
         """Get header format."""
@@ -237,144 +247,229 @@ class WhatsAppTemplates(Document):
 
         return header
 
+
 @frappe.whitelist()
-def fetch():
-    """Fetch templates from meta."""
-    """Later improve this code to pass a whatsapp account remove the js funcation so that it is called from whatsapp account doctype """
-    account = get_whatsapp_account(account_type='outgoing')
-    if not account:
-        frappe.throw("Please configure a default outgoing WhatsApp Account first.")
-        
-    if account.status != 'Active':
-        frappe.throw(f"Default outgoing WhatsApp Account {account.name} is not Active.")
+def delete_from_meta(template_name):
+    """Delete a template from Meta and then trash the local doc.
 
-    whatsapp_accounts = [account]
+    Error handling:
+    - 404: template already gone on Meta, still trash locally
+    - 401/403: auth failure, show reauth message, do NOT trash
+    - 5xx/timeout: transient error, show error, do NOT trash
+    """
+    doc = frappe.get_doc("WhatsApp Templates", template_name)
+    creds = get_account_credentials(doc.whatsapp_account)
 
-    for account in whatsapp_accounts:
-        # get credentials
-        token = account.get_password("token")
-        url = account.url
-        version = account.version
-        business_id = account.business_id
+    url = f"{creds['url']}/{creds['version']}/{creds['business_id']}/message_templates?name={doc.actual_name}"
 
-        headers = {"authorization": f"Bearer {token}", "content-type": "application/json"}
+    try:
+        make_request("DELETE", url, headers=creds["headers"])
+        frappe.delete_doc("WhatsApp Templates", template_name, force=True)
+        frappe.db.commit()
+        return {"status": "success", "message": "Template deleted from Meta and locally."}
+    except Exception:
+        if not hasattr(frappe.flags.integration_request, 'json'):
+            frappe.log_error(title=f"Delete from Meta failed: {template_name}")
+            frappe.throw("An unexpected error occurred while deleting the template from Meta.")
 
         try:
-            # Delete old templates that don't belong to the active default outgoing account
-            frappe.db.sql(
-                "DELETE FROM `tabWhatsApp Button` WHERE parent IN "
-                "(SELECT name FROM `tabWhatsApp Templates` WHERE whatsapp_account != %s)",
-                (account.name,)
+            response = frappe.flags.integration_request
+            status_code = response.status_code if hasattr(response, 'status_code') else 0
+            res = response.json().get("error", {})
+
+            if status_code == 404 or res.get("error_user_title") == "Message Template Not Found":
+                frappe.delete_doc("WhatsApp Templates", template_name, force=True)
+                frappe.db.commit()
+                return {"status": "success", "message": "Template was already deleted on Meta. Removed locally."}
+
+            if status_code in (401, 403):
+                frappe.throw(
+                    msg=f"Authentication failed for WhatsApp Account '{doc.whatsapp_account}'. Please reauthorize the token.",
+                    title="Auth Error",
+                )
+
+            error_message = res.get("error_user_msg", res.get("message", "Unknown error"))
+            frappe.log_error(title=f"Delete from Meta failed: {template_name}")
+            frappe.throw(
+                msg=error_message,
+                title=res.get("error_user_title", "Error"),
             )
-            frappe.db.sql("DELETE FROM `tabWhatsApp Templates` WHERE whatsapp_account != %s", (account.name,))
+        except (json.JSONDecodeError, KeyError, AttributeError):
+            frappe.log_error(title=f"Delete from Meta failed: {template_name}")
+            frappe.throw("An unexpected error occurred while deleting the template from Meta.")
 
-            response = make_request(
-                "GET",
-                f"{url}/{version}/{business_id}/message_templates",
-                headers=headers,
-            )
 
-            for template in response["data"]:
-                # set flag to insert or update
-                flags = 1
-                if frappe.db.exists("WhatsApp Templates", {"actual_name": template["name"]}):
-                    doc = frappe.get_doc("WhatsApp Templates", {"actual_name": template["name"]})
-                else:
-                    flags = 0
-                    doc = frappe.new_doc("WhatsApp Templates")
-                    doc.template_name = template["name"]
-                    doc.actual_name = template["name"]
+@frappe.whitelist()
+def fetch():
+    """Fetch templates from Meta for all active WhatsApp Accounts.
 
-                doc.status = template["status"]
-                doc.language_code = template["language"]
-                doc.category = template["category"]
-                doc.id = template["id"]
-                doc.whatsapp_account = account.name
+    Syncs templates, marks orphans as 'Deleted on Meta', handles pagination.
+    """
+    active_accounts = frappe.get_all(
+        "WhatsApp Account",
+        filters={"status": "Active"},
+        fields=["name"],
+    )
 
-                # update components
-                for component in template["components"]:
+    if not active_accounts:
+        frappe.throw("No active WhatsApp Accounts found. Please configure at least one.")
 
-                    # update header
-                    if component["type"] == "HEADER":
-                        doc.header_type = component["format"]
+    seen_templates = set()  # (actual_name, whatsapp_account) tuples seen from Meta
+    successful_accounts = []  # accounts whose fetch succeeded
 
-                        # if format is text update sample text
-                        if component["format"] == "TEXT":
-                            doc.header = component["text"]
-                    # Update footer text
-                    elif component["type"] == "FOOTER":
-                        doc.footer = component["text"]
+    for account_ref in active_accounts:
+        account_name = account_ref.name
+        try:
+            creds = get_account_credentials(account_name)
+        except Exception:
+            frappe.log_error(title=f"WhatsApp template sync: failed to get credentials for {account_name}")
+            continue
 
-                    # update template text
-                    elif component["type"] == "BODY":
-                        doc.template = component["text"]
-                        if component.get("example"):
-                            # Check if 'body_text' exists before trying to access it
-                            if component["example"].get("body_text"):
-                                doc.sample_values = ",".join(
-                                    component["example"]["body_text"][0]
-                                )
+        try:
+            all_templates = _fetch_all_pages(creds)
+        except Exception:
+            frappe.log_error(title=f"WhatsApp template sync: API call failed for account {account_name}")
+            continue
 
-                    # Update buttons
-                    elif component["type"] == "BUTTONS":
-                        doc.set("buttons", [])
-                        frappe.db.delete("WhatsApp Button", {"parent": doc.name, "parenttype": "WhatsApp Templates"})
-                        typeMap = {
-                            "URL": "Visit Website",
-                            "PHONE_NUMBER": "Call Phone",
-                            "QUICK_REPLY": "Quick Reply",
-                            "FLOW": "Flow",
-                            "CATALOG": "Catalog",
-                            "MPM": "MPM",
-                            "COPY_CODE": "Copy Code",
-                        }
+        successful_accounts.append(account_name)
 
-                        for i, button in enumerate(component.get("buttons", []), start=1):
-                            btn = {}
-                            btn["button_type"] = typeMap.get(button["type"], button["type"])
-                            btn["button_label"] = button.get("text", "")
-                            btn["sequence"] = i
+        for template in all_templates:
+            seen_templates.add((template["name"], account_name))
+            _upsert_template(template, account_name)
 
-                            if button["type"] == "URL":
-                                btn["website_url"] = button.get("url")
-                                if btn["website_url"] and "{{" in btn["website_url"]:
-                                    btn["url_type"] = "Dynamic"
-                                else:
-                                    btn["url_type"] = "Static"
+    # Orphan detection: mark templates not seen from Meta for successful accounts
+    _mark_orphans(seen_templates, successful_accounts)
 
-                                if button.get("example"):
-                                    btn["example_url"] = ",".join(button["example"])
-                            elif button["type"] == "PHONE_NUMBER":
-                                btn["phone_number"] = button.get("phone_number")
-                            elif button["type"] == "FLOW":
-                                btn["flow_id"] = button.get("flow_id", "")
-                                btn["flow_name"] = button.get("flow_name", "")
-                                btn["flow_action"] = button.get("flow_action", "")
-                            elif button["type"] == "COPY_CODE":
-                                btn["button_label"] = button.get("example", button.get("text", ""))
+    frappe.db.commit()
+    return "Successfully synced templates from Meta"
 
-                            doc.append("buttons", btn)
 
-                upsert_doc_without_hooks(doc, "WhatsApp Button", "buttons")
+def _fetch_all_pages(creds):
+    """Fetch all template pages from Meta API, following pagination."""
+    all_templates = []
+    url = f"{creds['url']}/{creds['version']}/{creds['business_id']}/message_templates"
 
-            return "Successfully fetched templates from meta"
+    while url:
+        response = make_request("GET", url, headers=creds["headers"])
+        all_templates.extend(response.get("data", []))
+        url = response.get("paging", {}).get("next")
 
-        except Exception as e:
-            # Check if frappe.flags.integration_request is set and has a .json() method
-            if hasattr(frappe.flags.integration_request, 'json'):
-                try:
-                    res = frappe.flags.integration_request.json().get("error", {})
-                    error_message = res.get("error_user_msg", res.get("message"))
-                    frappe.throw(
-                        msg=error_message,
-                        title=res.get("error_user_title", "Error"),
+    return all_templates
+
+
+def _upsert_template(template, account_name):
+    """Create or update a local template doc from Meta API data."""
+    existing = frappe.db.exists(
+        "WhatsApp Templates",
+        {"actual_name": template["name"], "whatsapp_account": account_name},
+    )
+
+    if existing:
+        doc = frappe.get_doc("WhatsApp Templates", existing)
+    else:
+        doc = frappe.new_doc("WhatsApp Templates")
+        doc.template_name = template["name"]
+        doc.actual_name = template["name"]
+
+    doc.status = template["status"]
+    doc.language_code = template["language"]
+    doc.category = template["category"]
+    doc.id = template["id"]
+    doc.whatsapp_account = account_name
+    doc.last_synced = now_datetime()
+
+    for component in template.get("components", []):
+        if component["type"] == "HEADER":
+            doc.header_type = component["format"]
+            if component["format"] == "TEXT":
+                doc.header = component["text"]
+        elif component["type"] == "FOOTER":
+            doc.footer = component["text"]
+        elif component["type"] == "BODY":
+            doc.template = component["text"]
+            if component.get("example"):
+                if component["example"].get("body_text"):
+                    doc.sample_values = ",".join(
+                        component["example"]["body_text"][0]
                     )
-                except (json.JSONDecodeError, KeyError):
-                    # Handle cases where the response is not valid JSON or lacks the 'error' key
-                    frappe.throw(f"An unexpected error occurred while fetching templates: {e}")
-            else:
-                # Handle cases where frappe.flags.integration_request doesn't exist or isn't a proper response object
-                frappe.throw(f"An unexpected server error occurred: {e}")
+        elif component["type"] == "BUTTONS":
+            doc.set("buttons", [])
+            if existing:
+                frappe.db.delete("WhatsApp Button", {"parent": doc.name, "parenttype": "WhatsApp Templates"})
+
+            type_map = {
+                "URL": "Visit Website",
+                "PHONE_NUMBER": "Call Phone",
+                "QUICK_REPLY": "Quick Reply",
+                "FLOW": "Flow",
+                "CATALOG": "Catalog",
+                "MPM": "MPM",
+                "COPY_CODE": "Copy Code",
+            }
+
+            for i, button in enumerate(component.get("buttons", []), start=1):
+                btn = {}
+                btn["button_type"] = type_map.get(button["type"], button["type"])
+                btn["button_label"] = button.get("text", "")
+                btn["sequence"] = i
+
+                if button["type"] == "URL":
+                    btn["website_url"] = button.get("url")
+                    if btn["website_url"] and "{{" in btn["website_url"]:
+                        btn["url_type"] = "Dynamic"
+                    else:
+                        btn["url_type"] = "Static"
+                    if button.get("example"):
+                        btn["example_url"] = ",".join(button["example"])
+                elif button["type"] == "PHONE_NUMBER":
+                    btn["phone_number"] = button.get("phone_number")
+                elif button["type"] == "FLOW":
+                    btn["flow_id"] = button.get("flow_id", "")
+                    btn["flow_name"] = button.get("flow_name", "")
+                    btn["flow_action"] = button.get("flow_action", "")
+                elif button["type"] == "COPY_CODE":
+                    btn["button_label"] = button.get("example", button.get("text", ""))
+
+                doc.append("buttons", btn)
+
+    upsert_doc_without_hooks(doc, "WhatsApp Button", "buttons")
+
+
+def _mark_orphans(seen_templates, successful_accounts):
+    """Mark local templates not found on Meta as 'Deleted on Meta'.
+
+    Only checks templates belonging to accounts whose fetch succeeded.
+    Never auto-deletes. User can manually clean up.
+    """
+    if not successful_accounts:
+        return
+
+    local_templates = frappe.get_all(
+        "WhatsApp Templates",
+        filters={"whatsapp_account": ["in", successful_accounts]},
+        fields=["name", "actual_name", "whatsapp_account", "status"],
+    )
+
+    for tmpl in local_templates:
+        key = (tmpl.actual_name, tmpl.whatsapp_account)
+        if key not in seen_templates and tmpl.status != "Deleted on Meta":
+            frappe.db.set_value("WhatsApp Templates", tmpl.name, "status", "Deleted on Meta")
+
+            # Log if any notifications reference this template
+            notifications = frappe.get_all(
+                "WhatsApp Notification",
+                filters={"template": tmpl.name},
+                fields=["name"],
+            )
+            if notifications:
+                notification_names = ", ".join([n.name for n in notifications])
+                frappe.log_error(
+                    title=f"Orphaned WhatsApp Template: {tmpl.name}",
+                    message=f"Template '{tmpl.actual_name}' was not found on Meta but is referenced by "
+                            f"WhatsApp Notifications: {notification_names}. "
+                            f"The template has been marked as 'Deleted on Meta'.",
+                )
+
 
 def upsert_doc_without_hooks(doc, child_dt, child_field):
     """Insert or update a parent document and its children without hooks."""

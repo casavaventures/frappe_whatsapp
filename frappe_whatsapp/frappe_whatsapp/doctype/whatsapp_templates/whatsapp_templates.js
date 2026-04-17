@@ -6,6 +6,28 @@ frappe.ui.form.on('WhatsApp Templates', {
 		frm.set_query('language', function() {
 			return { filters: { enabled: 1 } };
 		});
+
+		if (!frm.is_new() && frm.doc.actual_name) {
+			frm.add_custom_button(__('Delete from Meta'), function() {
+				frappe.confirm(
+					__('This will permanently delete the template <b>{0}</b> from Meta (WhatsApp Business). This cannot be undone. Continue?', [frm.doc.actual_name]),
+					function() {
+						frappe.call({
+							method: 'frappe_whatsapp.frappe_whatsapp.doctype.whatsapp_templates.whatsapp_templates.delete_from_meta',
+							args: { template_name: frm.doc.name },
+							freeze: true,
+							freeze_message: __('Deleting from Meta...'),
+							callback: function(r) {
+								if (r.message && r.message.status === 'success') {
+									frappe.show_alert({ message: r.message.message, indicator: 'green' });
+									frappe.set_route('List', 'WhatsApp Templates');
+								}
+							}
+						});
+					}
+				);
+			}, __('Actions'));
+		}
 	},
 
 	validate: function(frm) {

@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "format:{template_name}-{language_code}",
+ "autoname": "format:{actual_name}-{language_code}-{whatsapp_account}",
  "creation": "2022-10-28 13:39:09.887817",
  "doctype": "DocType",
  "editable_grid": 1,
@@ -29,15 +29,15 @@
   "column_break_tbvf",
   "footer",
   "section_break_wu2vp",
-  "buttons"
+  "buttons",
+  "last_synced"
  ],
  "fields": [
   {
    "fieldname": "template_name",
    "fieldtype": "Data",
    "label": "Template Label",
-   "reqd": 1,
-   "unique": 1
+   "reqd": 1
   },
   {
    "fieldname": "template",
@@ -165,6 +165,12 @@
    "fieldtype": "Link",
    "label": "WhatsApp Account",
    "options": "WhatsApp Account"
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
