@@ -211,7 +211,8 @@
    "fieldname": "bulk_message_reference",
    "fieldtype": "Data",
    "hidden": 1,
-   "label": "bulk_message_reference"
+   "label": "bulk_message_reference",
+   "search_index": 1
   },
   {
    "fieldname": "profile_name",

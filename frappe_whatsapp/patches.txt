@@ -5,3 +5,4 @@
 frappe_whatsapp.patches.set_default_in_whatsapp_settings
 frappe_whatsapp.patches.migrate_to_multi_account
 frappe_whatsapp.patches.rename_templates_for_multi_account
+frappe_whatsapp.patches.heal_stuck_bulk_whatsapp_messages

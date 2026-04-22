@@ -248,7 +248,12 @@ class WhatsAppMessage(Document):
                 self.status = "Failed"
                 frappe.throw(f"Failed to send message {str(e)}")
         elif self.type == "Outgoing" and self.message_type == "Template" and not self.message_id:
-            self.send_template()
+            try:
+                self.send_template()
+                self.status = "Success"
+            except Exception:
+                self.status = "Failed"
+                raise
 
         self.create_whatsapp_profile()
 
@@ -495,6 +500,7 @@ class WhatsAppMessage(Document):
 
 def on_doctype_update():
     frappe.db.add_index("WhatsApp Message", ["reference_doctype", "reference_name"])
+    frappe.db.add_index("WhatsApp Message", ["bulk_message_reference"])
 
 
 @frappe.whitelist()

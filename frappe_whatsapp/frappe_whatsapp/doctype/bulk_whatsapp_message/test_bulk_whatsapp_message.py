@@ -196,6 +196,114 @@ class TestBulkWhatsAppMessage(IntegrationTestCase):
         failed_msg.reload()
         self.assertEqual(failed_msg.status, "Queued")
 
+    @patch("frappe_whatsapp.frappe_whatsapp.doctype.whatsapp_message.whatsapp_message.make_post_request")
+    def test_parallel_workers_do_not_lose_count_updates(self, mock_post):
+        """REGRESSION: concurrent create_single_message calls must all count.
+
+        The old code did `self.db_set("sent_count", cint(self.sent_count) + 1)`,
+        which read stale in-memory state. Two workers seeing sent_count=0 would
+        both write 1, losing an update and leaving the bulk stuck in "Queued".
+        The fix counts children directly from the DB so no update can be lost.
+        """
+        mock_post.return_value = {"messages": [{"id": "wamid.race_test"}]}
+
+        doc = self._make_bulk_message(
+            title="Test Bulk Race",
+            recipients=[
+                {"mobile_number": f"91990011{i:04d}", "recipient_name": f"User {i}"}
+                for i in range(5)
+            ],
+        )
+
+        # Simulate parallel workers: load ALL worker docs FIRST so every
+        # worker starts with sent_count=0 in memory (this is what enqueue_doc
+        # does when multiple workers pick up jobs in parallel). Then each
+        # worker processes its recipient. Under the old code every worker
+        # would write sent_count=1 (0+1), losing 4 increments and leaving
+        # the bulk stuck. Under the fix, completion counts from the DB.
+        workers = [
+            frappe.get_doc("Bulk WhatsApp Message", doc.name)
+            for _ in range(5)
+        ]
+        for i, worker_doc in enumerate(workers):
+            worker_doc.create_single_message({
+                "mobile_number": f"91990011{i:04d}",
+                "recipient_name": f"User {i}",
+            })
+
+        doc.reload()
+        self.assertEqual(doc.sent_count, 5)
+        self.assertEqual(doc.status, "Completed")
+
+    @patch("frappe_whatsapp.frappe_whatsapp.doctype.whatsapp_message.whatsapp_message.make_post_request")
+    def test_template_message_status_set_to_success_after_send(self, mock_post):
+        """REGRESSION: Template-type outgoing messages used to stay 'Queued'
+        after a successful API call because the template branch of
+        before_insert() never set self.status. Now it does.
+        """
+        mock_post.return_value = {"messages": [{"id": "wamid.template_status"}]}
+
+        msg = frappe.get_doc({
+            "doctype": "WhatsApp Message",
+            "to": "919900119999",
+            "type": "Outgoing",
+            "message_type": "Template",
+            "content_type": "text",
+            "use_template": 1,
+            "template": "test_bulk_template-en",
+            "whatsapp_account": "Test WA Bulk Account",
+        })
+        msg.insert(ignore_permissions=True)
+
+        self.assertEqual(msg.status, "Success")
+        self.assertEqual(msg.message_id, "wamid.template_status")
+
+    @patch("frappe_whatsapp.frappe_whatsapp.doctype.whatsapp_message.whatsapp_message.make_post_request")
+    def test_partially_failed_not_overwritten_by_completed(self, mock_post):
+        """REGRESSION: when some sends fail and some succeed, bulk must end
+        in 'Partially Failed', never 'Completed'. The old code incremented
+        sent_count even on failure AND then unconditionally flipped to
+        Completed when the count matched recipient_count.
+        """
+        call_count = {"n": 0}
+
+        def side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 2:
+                raise Exception("Simulated Meta API error")
+            return {"messages": [{"id": f"wamid.mixed_{call_count['n']}"}]}
+
+        mock_post.side_effect = side_effect
+
+        doc = self._make_bulk_message(
+            title="Test Bulk Mixed",
+            recipients=[
+                {"mobile_number": "919900118881", "recipient_name": "Ok 1"},
+                {"mobile_number": "919900118882", "recipient_name": "Fail"},
+                {"mobile_number": "919900118883", "recipient_name": "Ok 2"},
+            ],
+        )
+
+        workers = [
+            frappe.get_doc("Bulk WhatsApp Message", doc.name)
+            for _ in doc.recipients
+        ]
+        for worker_doc, r in zip(workers, doc.recipients):
+            worker_doc.create_single_message({
+                "mobile_number": r.mobile_number,
+                "recipient_name": r.recipient_name,
+            })
+
+        doc.reload()
+        self.assertEqual(doc.status, "Partially Failed")
+        self.assertEqual(doc.sent_count, 3)
+
+        failed_children = frappe.get_all(
+            "WhatsApp Message",
+            filters={"bulk_message_reference": doc.name, "status": "Failed"},
+        )
+        self.assertEqual(len(failed_children), 1)
+
     def test_validate_with_recipient_list(self):
         """Test validation with recipient_list type."""
         # Create a recipient list first

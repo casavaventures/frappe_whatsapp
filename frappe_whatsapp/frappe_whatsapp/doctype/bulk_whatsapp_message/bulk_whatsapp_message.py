@@ -1,18 +1,35 @@
 # Bulk WhatsApp Messaging for Frappe WhatsApp
-# bulk_whatsapp_messaging.py
 
 import frappe
 from frappe import _
 import json
-from frappe.utils import cint, get_datetime, now
+from frappe.utils import cint
 from frappe.model.document import Document
 from frappe.model.naming import make_autoname
 
-# Add these files to your frappe_whatsapp app
 
-# 1. First, create a new DocType for Bulk WhatsApp Messaging
-# Save this as a Python file in your app's folder: 
-# frappe_whatsapp/frappe_whatsapp/doctype/bulk_whatsapp_message/bulk_whatsapp_message.py
+# Bulk -> Child -> Webhook state machine
+#
+#  Bulk WhatsApp Message.status          WhatsApp Message (child).status
+#  ---------------------------           --------------------------------
+#  Draft                                    (not yet created)
+#    | submit()
+#    v
+#  Queued                                Queued  (one row per recipient)
+#    | workers run create_single_message()
+#    |   -> child .insert() triggers before_insert()
+#    |      -> notify() calls Meta Graph API
+#    v
+#  (children reach terminal status as workers finish)
+#    child.insert() succeeded:             Success     (API accepted)
+#    child.insert() raised:                Failed      (recorded via db_insert)
+#    Meta webhook later flips child to:    sent -> delivered -> read
+#
+#  After each child is processed, maybe_complete() reads child counts from DB
+#  (NOT an in-memory counter) and flips parent:
+#    all children exist, none Failed    -> Completed
+#    all children exist, some Failed    -> Partially Failed
+#    fewer children than recipient_count -> stays Queued (worker died / retry needed)
 
 class BulkWhatsAppMessage(Document):
     def autoname(self):
@@ -167,11 +184,65 @@ class BulkWhatsAppMessage(Document):
         wa_message.status = "Queued"
         try:
             wa_message.insert(ignore_permissions=True)
+        except Exception as e:
+            # before_insert hooks can call Meta's Graph API which may raise
+            # (frappe.throw) on auth, rate-limit, or template errors. The row
+            # never lands, so record a Failed stub so completion accounting is
+            # correct and retry_failed() has a handle to requeue.
+            frappe.db.rollback()
+            frappe.log_error(
+                title=f"Bulk WhatsApp send failed ({recipient.get('mobile_number')})",
+                message=frappe.get_traceback(),
+            )
+            self._record_failed_child(recipient, str(e))
+
+        self.maybe_complete()
+
+    def _record_failed_child(self, recipient, error_msg):
+        """Insert a Failed WhatsApp Message row without triggering send hooks."""
+        failed = frappe.new_doc("WhatsApp Message")
+        failed.to = recipient.get("mobile_number")
+        failed.type = "Outgoing"
+        failed.status = "Failed"
+        failed.bulk_message_reference = self.name
+        failed.whatsapp_account = self.whatsapp_account
+        failed.message_type = "Template" if self.use_template else "Manual"
+        failed.content_type = "text"
+        failed.message = (error_msg or "")[:140]
+        try:
+            failed.flags.ignore_validate = True
+            failed.db_insert()
         except Exception:
-            self.db_set("status", "Partially Failed")
-        self.db_set("sent_count", cint(self.sent_count) + 1)
-        if self.recipient_count == self.sent_count:
-            self.db_set("status", "Completed")
+            frappe.log_error(
+                title="Bulk WhatsApp: could not record failed child row",
+                message=frappe.get_traceback(),
+            )
+
+    def maybe_complete(self):
+        """Set bulk status from actual child counts in the DB.
+
+        No in-memory counter. Parallel workers cannot race because each one
+        reads the authoritative row count; the final worker to finish sees
+        total == recipient_count and flips the status.
+        """
+        row = frappe.db.sql(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN status = 'Failed' THEN 1 ELSE 0 END) AS failed
+            FROM `tabWhatsApp Message`
+            WHERE bulk_message_reference = %s
+            """,
+            self.name,
+            as_dict=True,
+        )[0]
+        total = cint(row.get("total"))
+        failed = cint(row.get("failed"))
+
+        self.db_set("sent_count", total, update_modified=False)
+
+        if total >= cint(self.recipient_count):
+            self.db_set("status", "Partially Failed" if failed else "Completed")
 
     def retry_failed(self):
         """Retry failed messages"""
